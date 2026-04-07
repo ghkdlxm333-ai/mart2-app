@@ -1,1 +1,4 @@
-# mart2-app
+streamlit
+pandas
+openpyxl
+xlsxwriter
