@@ -4,7 +4,7 @@ import io
 import re
 from datetime import datetime
 
-st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🛒🔴", layout="wide")
+st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🔴", layout="wide")
 
 @st.cache_data
 def load_lotte_master(path):
