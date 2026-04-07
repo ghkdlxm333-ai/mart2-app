@@ -38,24 +38,33 @@ else:
 
     if uploaded_file:
         try:
-            # 2. 원본 데이터 전체 읽기 (납품일 추출 및 헤더 탐색)
+            # 2. 원본 데이터 전체 읽기 (헤더 없이)
             df_all = pd.read_excel(uploaded_file, header=None)
             
             delivery_date = ""
             header_row_idx = 0
             
-            # 3. 데이터 스캔 (납품일 및 상품코드 위치 찾기)
+            # 3. 납품일자 및 헤더 위치 찾기
             for i, row in df_all.iterrows():
                 row_list = [str(val).strip() for val in row.values]
                 
-                # 납품일자 추출 (문자열 내에서 날짜 패턴 찾기)
+                # '납품일' 키워드가 있는 경우
                 if '납품일' in row_list:
-                    row_str = " ".join(row_list)
-                    date_match = re.search(r'(\d{4})[-./]?(\d{2})[-./]?(\d{2})', row_str)
-                    if date_match:
-                        delivery_date = "".join(date_match.groups())
+                    # 1순위: '납품일' 글자 바로 아래 행(i+1)에서 날짜 찾기
+                    if i + 1 < len(df_all):
+                        next_row_str = " ".join([str(v) for v in df_all.iloc[i+1].values])
+                        date_match = re.search(r'(\d{4})[-./]?(\d{2})[-./]?(\d{2})', next_row_str)
+                        if date_match:
+                            delivery_date = "".join(date_match.groups())
+                    
+                    # 2순위: 현재 행에서 날짜가 같이 있는 경우 (옆 칸 등)
+                    if not delivery_date:
+                        row_str = " ".join(row_list)
+                        date_match = re.search(r'(\d{4})[-./]?(\d{2})[-./]?(\d{2})', row_str)
+                        if date_match:
+                            delivery_date = "".join(date_match.groups())
                 
-                # '상품코드'가 있는 행을 실제 데이터 헤더로 인식
+                # '상품코드'가 있는 행을 데이터 시작점으로 인식
                 if '상품코드' in row_list:
                     header_row_idx = i
                     break
@@ -66,7 +75,6 @@ else:
 
             temp_rows = []
             for _, row in df_raw.iterrows():
-                # 센터명으로 배송코드 할당
                 center_nm = str(row.get('점포(센터)', '')).strip()
                 if '오산상온센타' in center_nm:
                     s_code = '81030907'
@@ -80,20 +88,18 @@ else:
                 order_num_match = re.search(r'\d+', raw_order)
                 order_qty = int(order_num_match.group()) if order_num_match else 0
                 
-                # 입수 및 단가 변환 (오류 방지 블록)
+                # 입수 및 단가 변환
                 try:
                     ipsu = int(float(str(row.get('입수', 1)).replace(',', '')))
-                except:
+                except Exception:
                     ipsu = 1
                 
                 try:
                     unit_price = int(float(str(row.get('단가', '0')).replace(',', '')))
-                except:
+                except Exception:
                     unit_price = 0
                 
                 unit_qty = order_qty * ipsu
-                
-                # ME코드 매칭
                 sell_code = str(row.get('판매코드', '')).strip()
                 me_code = prod_dict.get(sell_code, f"미등록({sell_code})")
                 
@@ -114,36 +120,26 @@ else:
 
             if temp_rows:
                 df_temp = pd.DataFrame(temp_rows)
-                
-                # 5. 합산 (배송지, 상품코드, 단가 기준)
+                # 5. 합산
                 grp_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT단가']
                 df_final = df_temp.groupby(grp_cols, as_index=False)['UNIT수량'].sum()
                 
-                # 6. 금액 및 부가세 계산
+                # 6. 금액 계산 및 컬럼명 공백 반영
                 df_final['금        액'] = df_final['UNIT수량'] * df_final['UNIT단가']
                 df_final['부  가   세'] = (df_final['금        액'] * 0.1).astype(int)
 
-                # 7. 컬럼 순서 및 양식 조정
-                final_cols = [
-                    '출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', 
-                    '배송지', '상품코드', '상품명', 'UNIT수량', 'UNIT단가', '금        액', '부  가   세'
-                ]
+                # 7. 컬럼 순서 조정
+                final_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT수량', 'UNIT단가', '금        액', '부  가   세']
                 df_final = df_final.reindex(columns=final_cols)
 
-                st.success(f"✅ 처리 완료 (납품일: {delivery_date})")
+                st.success(f"✅ 완료! 추출된 납품일: {delivery_date}")
                 st.dataframe(df_final, use_container_width=True)
 
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df_final.to_excel(writer, index=False, sheet_name='서식업로드')
-                
-                st.download_button(
-                    label="📥 롯데마트 최종 서식 다운로드",
-                    data=output.getvalue(),
-                    file_name=f"Lotte_Final_{datetime.now().strftime('%m%d')}.xlsx"
-                )
+                st.download_button(label="📥 결과 다운로드", data=output.getvalue(), file_name=f"Lotte_Final_{datetime.now().strftime('%m%d')}.xlsx")
             else:
-                st.warning("분석할 수 있는 데이터가 없습니다.")
-
+                st.warning("데이터가 없습니다.")
         except Exception as e:
-            st.error(f"오류 발생: {str(e)}")
+            st.error(f"오류: {str(e)}")
