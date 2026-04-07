@@ -34,28 +34,28 @@ prod_dict, error = load_lotte_master(MASTER_FILE)
 if error:
     st.error(f"마스터 파일 로드 실패: {error}")
 else:
-    uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요", type=['xlsx'])
+    uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요 (ORDERS_...)", type=['xlsx'])
 
     if uploaded_file:
         try:
-            # 2. 원본 데이터 전체 읽기 (납품일 추출용)
+            # 2. 원본 데이터 전체 읽기 (납품일 추출 및 헤더 찾기용)
             df_all = pd.read_excel(uploaded_file, header=None)
             
             delivery_date = ""
             header_row_idx = 0
             
-            # 3. 납품일자 추출 및 실제 헤더(상품코드) 위치 찾기
+            # 3. 납품일자 추출 및 실제 표의 헤더(상품코드) 위치 탐색
             for i, row in df_all.iterrows():
                 row_list = [str(val).strip() for val in row.values]
                 
-                # '납품일' 키워드가 포함된 행에서 날짜 패턴 추출
+                # '납품일' 키워드가 포함된 행에서 날짜(YYYY-MM-DD) 패턴 추출
                 if '납품일' in row_list:
                     row_str = " ".join(row_list)
                     date_match = re.search(r'(\d{4})[-./]?(\d{2})[-./]?(\d{2})', row_str)
                     if date_match:
-                        delivery_date = "".join(date_match.groups())
+                        delivery_date = "".join(date_match.groups()) # 20260408 형식
                 
-                # '상품코드'가 있는 행을 데이터 시작점으로 인식
+                # '상품코드'가 있는 행을 실제 데이터 시작점으로 인식
                 if '상품코드' in row_list:
                     header_row_idx = i
                     break
@@ -65,6 +65,3 @@ else:
             df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
             temp_rows = []
-            for _, row in df_raw.iterrows():
-                # 센터명 확인 및 배송코드 부여
-                center_nm = str(row.get('점포(센터)', '')).strip()
