@@ -9,11 +9,11 @@ st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🛒",
 @st.cache_data
 def load_lotte_master(path):
     try:
-        # [롯데마트 제품코드] 시트 로드 (바코드-ME코드 매핑)
+        # [롯데마트 제품코드] 시트 로드 (상품코드-ME코드 매핑)
         df_prod = pd.read_excel(path, sheet_name='롯데마트 제품코드', dtype=str)
         prod_map = {
-            str(r['바코드']).strip(): str(r['ME코드']).strip() 
-            for _, r in df_prod.iterrows() if pd.notna(r['바코드'])
+            str(r['상품코드']).strip(): str(r['ME코드']).strip() 
+            for _, r in df_prod.iterrows() if pd.notna(r['상품코드'])
         }
         return prod_map, None
     except Exception as e:
