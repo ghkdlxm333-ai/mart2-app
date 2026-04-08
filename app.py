@@ -123,7 +123,7 @@ else:
                 final_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT수량', 'UNIT단가', '금        액', '부  가   세']
                 df_final = df_final.reindex(columns=final_cols)
 
-                st.success(f"✅ 분석 완료! (추출된 납품일: {delivery_date})")
+                st.success(f"✅ 분석 완료!")
                 st.dataframe(df_final, use_container_width=True)
 
                 output = io.BytesIO()
