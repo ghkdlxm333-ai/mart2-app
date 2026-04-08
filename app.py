@@ -38,7 +38,7 @@ else:
     st.info("💡 **안내:** 엑셀파일 확장자를 **xlsx로 변환** 후 업로드해주세요.")
     # -----------------------
     
-    uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요", type=['xlsx'])
+    uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요. (K열에 점포(센터) 목록 및 정보 추가필요)", type=['xlsx'])
 
     if uploaded_file:
         try:
