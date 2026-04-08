@@ -4,7 +4,7 @@ import io
 import re
 from datetime import datetime
 
-st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🛒", layout="wide")
+st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🔴", layout="wide")
 
 @st.cache_data
 def load_lotte_master(path):
@@ -25,7 +25,7 @@ def load_lotte_master(path):
     except Exception as e:
         return {}, str(e)
 
-st.title("🛒 롯데마트 수주 자동화")
+st.title("🛒🔴 롯데마트 수주 자동화")
 
 # 1. 마스터 파일 로드
 MASTER_FILE = "롯데마트_서식파일_업데이트용.xlsx"
