@@ -34,6 +34,10 @@ prod_dict, error = load_lotte_master(MASTER_FILE)
 if error:
     st.error(f"마스터 파일 로드 실패: {error}")
 else:
+    # --- 안내 문구 추가 구간 ---
+    st.info("💡 **안내:** 엑셀파일 확장자를 **xlsx로 변환** 후 업로드해주세요.")
+    # -----------------------
+
     uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요", type=['xlsx'])
 
     if uploaded_file:
