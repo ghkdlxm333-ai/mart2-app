@@ -4,7 +4,7 @@ import io
 import re
 from datetime import datetime
 
-st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🔴", layout="wide")
+st.set_page_config(page_title="롯데마트 수주 자동화", page_icon="🛒", layout="wide")
 
 @st.cache_data
 def load_lotte_master(path):
@@ -25,7 +25,7 @@ def load_lotte_master(path):
     except Exception as e:
         return {}, str(e)
 
-st.title("🛒🔴 롯데마트 수주 자동화")
+st.title("🛒 롯데마트 수주 자동화")
 
 # 1. 마스터 파일 로드
 MASTER_FILE = "롯데마트_서식파일_업데이트용.xlsx"
@@ -37,19 +37,22 @@ else:
     # --- 안내 문구 추가 구간 ---
     st.info("💡 **안내:** 엑셀파일 확장자를 **xlsx로 변환** 후 업로드해주세요.")
     # -----------------------
-
+    
     uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요", type=['xlsx'])
 
     if uploaded_file:
         try:
-            # 2. 납품일자 추출 (H6 셀 기준)
-            # H6는 0부터 시작하는 인덱스 기준으로 row=5, col=7 입니다.
+            # 2. 납품일자 추출 (H6 셀 기준: 인덱스 5행, 7열)
             df_for_date = pd.read_excel(uploaded_file, header=None)
-            raw_delivery_date = str(df_for_date.iloc[5, 7]) # H6 셀 값 추출
             
-            # 숫자만 추출하여 YYYYMMDD 형식으로 변환
-            delivery_date = "".join(re.findall(r'\d+', raw_delivery_date))[:8]
-            
+            # H6 셀 값 안전하게 가져오기
+            try:
+                raw_delivery_date = str(df_for_date.iloc[5, 7]) 
+                # 숫자만 추출하여 YYYYMMDD 형식으로 변환
+                delivery_date = "".join(re.findall(r'\d+', raw_delivery_date))[:8]
+            except Exception:
+                delivery_date = ""
+
             # 3. 데이터 본문 로드 (헤더 '상품코드' 위치 찾기)
             header_row_idx = 0
             for i, row in df_for_date.iterrows():
@@ -107,7 +110,7 @@ else:
 
             if temp_rows:
                 df_temp = pd.DataFrame(temp_rows)
-                # 4. 합산 로직
+                # 4. 합산
                 grp_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT단가']
                 df_final = df_temp.groupby(grp_cols, as_index=False)['UNIT수량'].sum()
                 
@@ -115,11 +118,11 @@ else:
                 df_final['금        액'] = df_final['UNIT수량'] * df_final['UNIT단가']
                 df_final['부  가   세'] = (df_final['금        액'] * 0.1).astype(int)
 
-                # 6. 컬럼 순서 조정 (최종 양식 준수)
+                # 6. 컬럼 순서 조정
                 final_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT수량', 'UNIT단가', '금        액', '부  가   세']
                 df_final = df_final.reindex(columns=final_cols)
 
-                st.success(f"✅ 분석 완료! (H6 셀 납품일: {delivery_date})")
+                st.success(f"✅ 분석 완료! (추출된 납품일: {delivery_date})")
                 st.dataframe(df_final, use_container_width=True)
 
                 output = io.BytesIO()
@@ -127,6 +130,6 @@ else:
                     df_final.to_excel(writer, index=False, sheet_name='서식업로드')
                 st.download_button(label="📥 결과 다운로드", data=output.getvalue(), file_name=f"Lotte_Result_{datetime.now().strftime('%m%d')}.xlsx")
             else:
-                st.warning("데이터가 없습니다.")
+                st.warning("데이터가 없습니다. 점포(센터) 열이 '오산상온센타' 또는 '김해상온센타'인지 확인해주세요.")
         except Exception as e:
             st.error(f"실행 오류: {str(e)}")
