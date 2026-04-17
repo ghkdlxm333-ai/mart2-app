@@ -17,10 +17,13 @@ def load_lotte_master(path):
         barcode_col = df_prod.columns[0]
         me_col = df_prod.columns[2]
         
-        prod_map = {
-            str(r[barcode_col]).strip(): str(r[me_col]).strip() 
-            for _, r in df_prod.iterrows() if pd.notna(r[barcode_col])
-        }
+        # 바코드에서 혹시 모를 소수점(.0) 제거 후 매핑
+        prod_map = {}
+        for _, r in df_prod.iterrows():
+            if pd.notna(r[barcode_col]):
+                b_code = str(r[barcode_col]).strip().split('.')[0] # 소수점 제거
+                prod_map[b_code] = str(r[me_col]).strip()
+                
         return prod_map, None
     except Exception as e:
         return {}, str(e)
@@ -91,7 +94,11 @@ else:
                     unit_price = 0
                 
                 unit_qty = order_qty * ipsu
-                sell_code = str(row.get('판매코드', '')).strip()
+                
+                # [수정] 판매코드에서 소수점(.0) 제거 로직 적용
+                sell_code_raw = str(row.get('판매코드', '')).strip()
+                sell_code = sell_code_raw.split('.')[0] # .0 부분 제거
+                
                 me_code = prod_dict.get(sell_code, f"미등록({sell_code})")
                 
                 if unit_qty > 0:
@@ -115,7 +122,7 @@ else:
                 grp_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT단가']
                 df_final = df_temp.groupby(grp_cols, as_index=False)['UNIT수량'].sum()
                 
-                # 5. 금액 및 부가세 계산
+                # 5. 금액 및 부가세 계산 (공백 포함 컬럼명 유지)
                 df_final['금        액'] = df_final['UNIT수량'] * df_final['UNIT단가']
                 df_final['부  가   세'] = (df_final['금        액'] * 0.1).astype(int)
 
