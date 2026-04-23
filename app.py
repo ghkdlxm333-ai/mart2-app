@@ -31,7 +31,6 @@ def load_lotte_master(path):
         prod_map = {}
         for _, r in df_prod.iterrows():
             if pd.notna(r[barcode_col]):
-                # 마스터 파일 바코드에서도 소수점 제거
                 b_code = str(r[barcode_col]).strip().split('.')[0]
                 prod_map[b_code] = str(r[me_col]).strip()
         return prod_map, None
@@ -47,40 +46,52 @@ if error:
     st.error(f"마스터 파일 로드 실패: {error}")
 else:
     st.markdown("### ※ 업로드 전 확인사항")
-    st.info("💡 **엑셀파일 확장자를 .xlsx로 변환 후 업로드해주세요.** (xls, csv 파일은 변환이 필요합니다)")
+    st.info("💡 **엑셀파일 확장자를 .xlsx로 변환 후 업로드해주세요.**")
     
     uploaded_file = st.file_uploader("가공된 롯데마트 로우 데이터를 업로드하세요.", type=['xlsx'])
 
     if uploaded_file:
         try:
-            # 1. 납품일자 추출 (H6 셀)
-            df_for_date = pd.read_excel(uploaded_file, header=None)
+            # 전체 데이터를 헤더 없이 로드 (위치 파악용)
+            df_full = pd.read_excel(uploaded_file, header=None)
+            
+            # 1. 납품일자 추출 (H6 셀 -> 인덱스 5행, 7열)
             try:
-                raw_delivery_date = str(df_for_date.iloc[5, 7]) 
+                raw_delivery_date = str(df_full.iloc[5, 7]) 
                 delivery_date = "".join(re.findall(r'\d+', raw_delivery_date))[:8]
             except:
                 delivery_date = ""
 
-            # 2. 데이터 본문 시작점 찾기
+            # 2. 센터정보 추출 (F6 셀 -> 인덱스 5행, 5열)
+            # 파일 구조상 6행의 '점포(센터)' 열에 해당하는 위치에서 센터명을 가져옵니다.
+            try:
+                raw_center = str(df_full.iloc[5, 5]).strip()
+                cleaned_center = clean_center_name(raw_center)
+                s_code = CENTER_CODE_MAP.get(cleaned_center)
+            except:
+                raw_center = ""
+                s_code = None
+
+            # 3. 데이터 본문 시작점 찾기 (헤더 '상품코드' 위치)
             header_row_idx = 0
-            for i, row in df_for_date.iterrows():
+            for i, row in df_full.iterrows():
                 if '상품코드' in [str(v).strip() for v in row.values]:
                     header_row_idx = i
                     break
             
+            # 실제 데이터 로드
             df_raw = pd.read_excel(uploaded_file, header=header_row_idx)
             df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
+            if not s_code:
+                st.error(f"❌ 센터 정보를 찾을 수 없습니다. (추출된 값: {raw_center})")
+                st.stop()
+
             temp_rows = []
             for _, row in df_raw.iterrows():
-                # 💡 센터정보 정제 및 코드 매핑 로직
-                raw_center = str(row.get('점포(센터)', '')).strip()
-                cleaned_center = clean_center_name(raw_center)
-                
-                # 매핑 테이블에서 코드 가져오기 (없으면 무시)
-                s_code = CENTER_CODE_MAP.get(cleaned_center)
-                if not s_code:
-                    continue  
+                # '합계' 행 등 불필요한 행 제외
+                if pd.isna(row.get('상품코드')) or '합계' in str(row.get('상품코드')):
+                    continue
 
                 # 수량 계산
                 raw_order = str(row.get('주문수', '0'))
@@ -99,7 +110,7 @@ else:
                 
                 unit_qty = order_qty * ipsu
                 
-                # 바코드 소수점(.0) 제거 후 ME코드 매칭
+                # 바코드 소수점 제거 후 ME코드 매칭
                 sell_code = str(row.get('판매코드', '')).strip().split('.')[0]
                 me_code = prod_dict.get(sell_code, f"미등록({sell_code})")
                 
@@ -108,10 +119,10 @@ else:
                         '출고구분': 0,
                         '수주일자': datetime.now().strftime('%Y%m%d'),
                         '납품일자': delivery_date,
-                        '발주처코드': '81030907', # 발주처코드는 오산으로 고정하거나 필요시 수정
+                        '발주처코드': '81030907',
                         '발주처': '롯데마트',
                         '배송코드': s_code,
-                        '배송지': raw_center, # 실제 출력은 원본 센터명 유지
+                        '배송지': raw_center,
                         '상품코드': me_code,
                         '상품명': str(row.get('상품명', '')),
                         'UNIT수량': unit_qty,
@@ -129,7 +140,7 @@ else:
                 final_cols = ['출고구분', '수주일자', '납품일자', '발주처코드', '발주처', '배송코드', '배송지', '상품코드', '상품명', 'UNIT수량', 'UNIT단가', '금        액', '부  가   세']
                 df_final = df_final.reindex(columns=final_cols)
 
-                st.success(f"✅ 분석 완료! (추출된 납품일: {delivery_date})")
+                st.success(f"✅ 분석 완료! (센터: {raw_center}, 납품일: {delivery_date})")
                 st.dataframe(df_final, use_container_width=True)
 
                 output = io.BytesIO()
@@ -137,6 +148,6 @@ else:
                     df_final.to_excel(writer, index=False, sheet_name='서식업로드')
                 st.download_button(label="📥 결과 다운로드", data=output.getvalue(), file_name=f"Lotte_Result_{datetime.now().strftime('%m%d')}.xlsx")
             else:
-                st.warning("데이터가 없습니다. '오산' 또는 '김해' 센터 데이터인지 확인해주세요.")
+                st.warning("처리할 데이터가 없습니다.")
         except Exception as e:
             st.error(f"실행 오류: {str(e)}")
