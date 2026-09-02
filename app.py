@@ -19,7 +19,7 @@ with col_up2:
     onhand_file = st.file_uploader("2. Inventory On-Hand Report 업로드 (.csv, .xlsx)", type=["csv", "xlsx", "xls"], key="onhand")
 
 # ---------------------------------------------------------
-# 2. 캐싱 처리된 데이터 매칭 엔진 (완전 선입선출 로직 적용)
+# 2. 캐싱 처리된 데이터 매칭 엔진 (REP2 전용 매칭 로직 추가)
 # ---------------------------------------------------------
 @st.cache_data(show_spinner="E1 재고 선입선출 매칭 처리 중...")
 def process_data(sales_file_bytes, sales_file_name, onhand_file_bytes, onhand_file_name):
@@ -108,6 +108,15 @@ def process_data(sales_file_bytes, sales_file_name, onhand_file_bytes, onhand_fi
 
     processed_rows = []
 
+    # REP2 무조건 매칭 대상 키워드 및 코드 리스트
+    rep2_targets = [
+        "무신사", "81032993",
+        "에이블리", "81032992",
+        "버드뷰", "화해", "81032963",
+        "지그재그", "89011213",
+        "네이버", "89020007"
+    ]
+
     # 3. 세일즈 수주건 차례대로 E1 재고 FIFO 매칭
     for idx, s_row in df_sales_valid.iterrows():
         item_code = clean_str(s_row.get('제품코드', ''))
@@ -115,12 +124,23 @@ def process_data(sales_file_bytes, sales_file_name, onhand_file_bytes, onhand_fi
         unit_price = clean_num(s_row.get('단가', 0))
         category = clean_str(s_row.get('구분', ''))
 
+        customer_str = clean_str(s_row.get('Customer', ''))
+        bill_to_str = clean_str(s_row.get('bill to ', s_row.get('Ship to ', '')))
+        
+        # REP2 대상 여부 체크 (Customer 또는 bill to에 대상 키워드가 포함되어 있는지 확인)
+        combined_cust_info = f"{customer_str} {bill_to_str}"
+        is_rep2_target = any(target in combined_cust_info for target in rep2_targets)
+
+        # Location 설정 로직
+        if is_rep2_target:
+            target_location = 'REP2'
+        else:
+            target_location = 'RET' if '반품' in category else 'PRI'
+
         raw_date = s_row.get('Date', '')
         clean_date = pd.to_datetime(raw_date, errors='coerce').strftime('%Y-%m-%d') if pd.notna(raw_date) else str(raw_date).split(' ')[0]
         if clean_date.lower() in ['nat', 'none']:
             clean_date = ""
-
-        target_location = 'RET' if '반품' in category else 'PRI'
 
         # 제품코드 매칭 (K 접두사 대응)
         if not df_onhand[df_onhand['Item Number'] == item_code].empty:
@@ -130,7 +150,7 @@ def process_data(sales_file_bytes, sales_file_name, onhand_file_bytes, onhand_fi
         else:
             e1_item_code = item_code
 
-        # E1 재고를 유통기한(Expiration Date) 오름차순(선입선출)으로 정렬
+        # 지정된 target_location 재고를 유통기한 오름차순(선입선출)으로 정렬
         item_inv = df_onhand[
             (df_onhand['Item Number'] == e1_item_code) & 
             (df_onhand['Location'] == target_location)
@@ -139,8 +159,8 @@ def process_data(sales_file_bytes, sales_file_name, onhand_file_bytes, onhand_fi
         sales_base = {
             '구분': category,
             'Date': clean_date,
-            'Customer': clean_str(s_row.get('Customer', '')),
-            'bill to': clean_str(s_row.get('bill to ', s_row.get('Ship to ', ''))),
+            'Customer': customer_str,
+            'bill to': bill_to_str,
             'Ship to': clean_str(s_row.get('Ship to ', '')),
             '제품코드': item_code,
             '제품명': clean_str(s_row.get('제품명', '')),
@@ -236,7 +256,7 @@ def highlight_status(row):
 
 
 # ---------------------------------------------------------
-# 3. 메인 화면 구성 및 필터링 (개선된 UI)
+# 3. 메인 화면 구성 및 필터링
 # ---------------------------------------------------------
 if sales_file and onhand_file:
     df_result = process_data(sales_file, sales_file.name, onhand_file, onhand_file.name)
@@ -247,7 +267,7 @@ if sales_file and onhand_file:
 
     st.sidebar.header("🔍 조회 조건 필터")
 
-    # --- 1. Date 날짜 범위 필터 (맨 상단으로 이동) ---
+    # --- 1. Date 날짜 범위 필터 ---
     df_result['Date_dt'] = pd.to_datetime(df_result['Date'], errors='coerce')
     valid_dates = df_result['Date_dt'].dropna()
 
@@ -263,7 +283,6 @@ if sales_file and onhand_file:
     else:
         selected_date_range = None
 
-    # 날짜 필터 1차 적용
     df_filtered_by_date = df_result.copy()
     if selected_date_range and len(selected_date_range) == 2:
         start_d, end_d = selected_date_range
@@ -272,7 +291,7 @@ if sales_file and onhand_file:
             (df_filtered_by_date['Date_dt'].dt.date <= end_d)
         ]
 
-    # --- 2. 구분 필터 (단순화된 드롭다운/Selectbox 형태) ---
+    # --- 2. 구분 필터 ---
     categories = sorted([cat for cat in df_filtered_by_date['구분'].unique() if pd.notna(cat) and str(cat).strip() != ''])
     category_options = ["전체 선택"] + categories
     selected_cat_option = st.sidebar.selectbox("🏷️ 구분 선택:", options=category_options, index=0)
@@ -282,10 +301,9 @@ if sales_file and onhand_file:
     else:
         selected_cats = [selected_cat_option]
 
-    # 구분 필터 2차 적용
     df_filtered_by_cat = df_filtered_by_date[df_filtered_by_date['구분'].isin(selected_cats)]
 
-    # --- 3. 연동형 거래처 필터 (선택된 날짜/구분에 해당하는 거래처만 표시) ---
+    # --- 3. 연동형 거래처 필터 ---
     available_customers = sorted([c for c in df_filtered_by_cat['Customer'].unique() if pd.notna(c) and str(c).strip() != ''])
     
     selected_cust = st.sidebar.selectbox(
@@ -294,7 +312,6 @@ if sales_file and onhand_file:
         index=0
     )
 
-    # 최종 필터링 데이터 확정
     df_curr = df_filtered_by_cat.copy()
     if selected_cust != "📊 전체 모아보기":
         df_curr = df_curr[df_curr['Customer'] == selected_cust]
